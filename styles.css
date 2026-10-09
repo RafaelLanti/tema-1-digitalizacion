@@ -49,3 +49,23 @@ details{background:var(--surface);border:1px solid var(--border);border-radius:1
 .page-nav{display:flex;justify-content:space-between;gap:1rem;margin-top:3rem;padding-top:1.5rem;border-top:1px solid var(--border)}
 @media(max-width:900px){.hero-inner{grid-template-columns:1fr}.grid{grid-template-columns:1fr 1fr}.navlinks{display:none}.menu{display:block}.logo{min-width:0}.nav.open .navlinks{display:flex;position:absolute;left:0;right:0;top:58px;background:var(--surface);padding:1rem;flex-direction:column;border-bottom:1px solid var(--border)}}
 @media(max-width:650px){.grid,.grid.two{grid-template-columns:1fr}.container{padding:2.5rem 1rem}.hero-inner{padding:4rem 1rem 2.5rem}.nav{padding:.65rem 1rem}}
+
+/* Imágenes y bloques visuales */
+.hero-visual{position:relative;min-height:360px;border-radius:28px;overflow:hidden;border:1px solid var(--border);box-shadow:var(--shadow);background:var(--surface)}
+.hero-visual img{width:100%;height:100%;min-height:360px;object-fit:cover;display:block}
+.hero-visual:after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,transparent 45%,rgba(10,15,35,.68))}
+.hero-visual-caption{position:absolute;left:1.25rem;right:1.25rem;bottom:1.1rem;z-index:2;color:#fff;font-weight:800;font-size:1.05rem}
+.image-card{padding:0;overflow:hidden}
+.image-card img{width:100%;height:170px;object-fit:cover;display:block}
+.image-card-body{padding:1.1rem 1.2rem 1.25rem}
+.feature-image{width:100%;max-height:390px;object-fit:cover;border-radius:22px;border:1px solid var(--border);box-shadow:var(--shadow);display:block;margin:1.2rem 0 2rem}
+.image-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin:1.5rem 0 2rem}
+.image-strip figure{margin:0;background:var(--surface);border:1px solid var(--border);border-radius:18px;overflow:hidden;box-shadow:0 5px 20px rgba(16,24,40,.035)}
+.image-strip img{width:100%;height:190px;object-fit:cover;display:block}
+.image-strip figcaption{padding:.8rem 1rem;font-weight:750}
+@media(max-width:650px){
+  .hero-visual,.hero-visual img{min-height:280px}
+  .image-strip{grid-template-columns:1fr}
+  .image-strip img{height:210px}
+}
+
