@@ -3,7 +3,9 @@
   const $ = (s) => document.querySelector(s);
   const area = $("#game-area"), title = $("#game-title"), intro = $("#game-intro");
   const topEl = $("#top-three"), modeEl = $("#leaderboard-mode");
-  const localKey = "digitalizacion-top3-v1";
+  const localKey = "digitalizacion-top20-v2";
+  const playerIdKey = "digitalizacion-player-id-v1";
+  const bannedWords = new Set(("mesa casa perro gato hola mundo prueba usuario jugador admin password amor sol luna agua libro papel ordenador tecnologia digitalizacion amigo amiga coche silla puerta ventana escuela clase profesor alumno nombre apellido españa madrid barcelona").split(" "));
   const config = window.LEADERBOARD_CONFIG || {};
   const quiz = [
     {q:"¿Qué describe mejor la digitalización empresarial?",a:["Transformar información y tareas mediante tecnología digital","Comprar más ordenadores sin cambiar procesos","Eliminar toda intervención humana"],c:0,e:"La digitalización transforma información, tareas y procesos mediante tecnologías digitales."},
@@ -41,28 +43,59 @@
     try { const v = JSON.parse(localStorage.getItem(localKey) || "[]"); return Array.isArray(v) ? v : []; }
     catch (_) { return []; }
   }
-  function saveLocal(rows) { localStorage.setItem(localKey, JSON.stringify(rows.slice(0,3))); }
-  function sortRows(rows) { return rows.sort((a,b) => b.score-a.score || (a.date||"").localeCompare(b.date||"")).slice(0,3); }
+  function saveLocal(rows) { localStorage.setItem(localKey, JSON.stringify(sortRows(rows).slice(0,20))); }
+  function sortRows(rows) {
+    const bestByPlayer = new Map();
+    rows.forEach(r => {
+      const key = r.player_id || (String(r.name||"").toLocaleLowerCase("es") + "|" + (r.game||""));
+      const prev = bestByPlayer.get(key);
+      if (!prev || Number(r.score) > Number(prev.score)) bestByPlayer.set(key,r);
+    });
+    return [...bestByPlayer.values()].sort((a,b) => Number(b.score)-Number(a.score) || (a.date||"").localeCompare(b.date||"")).slice(0,20);
+  }
+  function validNickname(value) {
+    const name = String(value || "").trim();
+    const normalized = name.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLocaleLowerCase("es");
+    if (!/^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ][A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9_-]{2,17}$/.test(name)) {
+      return "Usa entre 3 y 18 caracteres: empieza por una letra y añade al menos un número (por ejemplo, Luna7). No se permiten espacios.";
+    }
+    if (!/[0-9]/.test(name)) return "El alias debe incluir al menos un número; no se aceptan palabras comunes como «mesa». Ejemplo: Mesa7.";
+    if (bannedWords.has(normalized)) return "Ese alias es una palabra común. Elige un alias personal con números, por ejemplo, Luna7.";
+    return "";
+  }
+  function getPlayerId() {
+    let id = localStorage.getItem(playerIdKey);
+    if (!id) {
+      id = (typeof crypto !== "undefined" && crypto.randomUUID)
+        ? crypto.randomUUID()
+        : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g,c=>{const r=Math.random()*16|0;return (c==="x"?r:(r&3|8)).toString(16);});
+      localStorage.setItem(playerIdKey,id);
+    }
+    return id;
+  }
+  function isConfigured() {
+    return !!(config.url && config.anonKey && !config.url.includes("TU_PROYECTO") && !config.anonKey.includes("TU_CLAVE"));
+  }
   async function getGlobal() {
-    if (!config.url || !config.anonKey || config.url.includes("TU_PROYECTO")) return null;
+    if (!isConfigured()) return null;
     try {
-      const url = config.url.replace(/\/$/,"") + "/rest/v1/scores?select=name,score,game,created_at&order=score.desc,created_at.asc&limit=3";
+      const url = config.url.replace(/\/$/,"") + "/rest/v1/leaderboard_players?select=name,score,game,updated_at,player_id&order=score.desc,updated_at.asc&limit=20";
       const res = await fetch(url,{headers:{apikey:config.anonKey,Authorization:"Bearer "+config.anonKey}});
       if (!res.ok) throw new Error("No se pudo leer la clasificación global.");
-      return (await res.json()).map(r=>({name:r.name,score:r.score,game:r.game,date:r.created_at}));
+      return (await res.json()).map(r=>({name:r.name,score:r.score,game:r.game,date:r.updated_at,player_id:r.player_id}));
     } catch (e) { console.warn(e); return null; }
   }
   async function renderScores() {
     const globalRows = await getGlobal();
     let rows, label;
-    if (globalRows !== null) { rows=globalRows; label="Top 3 global (Supabase)"; }
-    else { rows=sortRows(loadLocal()); label="Top 3 guardado en este navegador"; }
+    if (globalRows !== null) { rows=globalRows; label="Top 20 global · todos los dispositivos"; }
+    else { rows=sortRows(loadLocal()); label=isConfigured()?"Top 20 local (no se pudo conectar con la base de datos)":"Top 20 local · configura Supabase para compartirlo"; }
     modeEl.textContent=label;
     topEl.innerHTML="";
     if (!rows.length) { const li=document.createElement("li"); li.textContent="Aún no hay puntuaciones. ¡Sé el primero!"; topEl.append(li); return; }
     rows.forEach((r,i)=>{
       const li=document.createElement("li");
-      const name=document.createElement("span"); name.className="score-name"; name.textContent=["🥇 ","🥈 ","🥉 "][i]+(r.name||"Jugador");
+      const name=document.createElement("span"); name.className="score-name"; name.textContent=(i<3?["🥇 ","🥈 ","🥉 "][i]:"#"+(i+1)+" ")+(r.name||"Jugador");
       const points=document.createElement("span"); points.className="score-points"; points.textContent=String(r.score)+" pts";
       li.append(name,points);
       const detail=document.createElement("div"); detail.className="small"; detail.textContent=(r.game||"Juego")+" · "+(r.date?new Date(r.date).toLocaleDateString("es-ES"):""); li.append(detail);
@@ -70,19 +103,27 @@
     });
   }
   async function submitScore(name) {
-    const row={name:name.trim().slice(0,18)||"Jugador",score:score,game:game.label,date:new Date().toISOString()};
-    saveLocal(sortRows([...loadLocal(),row]));
+    const validation = validNickname(name);
+    if (validation) {
+      const error = $("#nickname-error");
+      if (error) error.textContent = validation;
+      const input = $("#player-name"); if (input) input.focus();
+      return false;
+    }
+    const row={player_id:getPlayerId(),name:name.trim().slice(0,18),score:score,game:game.label,date:new Date().toISOString()};
+    saveLocal([...loadLocal(),row]);
     let globalSaved=false;
-    if (config.url && config.anonKey && !config.url.includes("TU_PROYECTO")) {
+    if (isConfigured()) {
       try {
-        const res=await fetch(config.url.replace(/\/$/,"")+"/rest/v1/scores",{method:"POST",headers:{apikey:config.anonKey,Authorization:"Bearer "+config.anonKey,"Content-Type":"application/json",Prefer:"return=minimal"},body:JSON.stringify({name:row.name,score:row.score,game:row.game})});
-        if (!res.ok) throw new Error("No se pudo guardar en Supabase");
+        const res=await fetch(config.url.replace(/\/$/,"")+"/rest/v1/rpc/submit_score",{method:"POST",headers:{apikey:config.anonKey,Authorization:"Bearer "+config.anonKey,"Content-Type":"application/json"},body:JSON.stringify({p_player_id:row.player_id,p_name:row.name,p_score:row.score,p_game:row.game})});
+        if (!res.ok) { const body=await res.text(); throw new Error(body||"No se pudo guardar en Supabase"); }
         globalSaved=true;
-      } catch(e) { console.warn(e); alert("La puntuación se ha guardado localmente, pero no se pudo enviar al Top 3 global. Revisa la configuración de Supabase."); }
+      } catch(e) { console.warn(e); alert("No se pudo guardar en el Top 20 global. Comprueba que has ejecutado el SQL de la guía y configurado Supabase. La puntuación queda guardada en este navegador."); }
     }
     await renderScores();
-    area.innerHTML=`<h3>¡Puntuación guardada!</h3><p> ${escapeHtml(row.name)}, has conseguido <strong>${score} puntos</strong>.</p><p class="callout ok">${globalSaved?"Tu puntuación se ha enviado al Top 3 global.":"Tu puntuación está guardada en este navegador."}</p><button class="btn" id="play-again">Jugar otra vez</button>`;
+    area.innerHTML=`<h3>¡Puntuación guardada!</h3><p> ${escapeHtml(row.name)}, has conseguido <strong>${score} puntos</strong>.</p><p class="callout ok">${globalSaved?"Tu mejor puntuación se ha sincronizado con el Top 20 global.":"Tu puntuación está guardada en este navegador."}</p><button class="btn" id="play-again">Jugar otra vez</button>`;
     $("#play-again").addEventListener("click",()=>start(game.type));
+    return true;
   }
   function start(type) {
     clearInterval(timer); game={type,label:type==="quiz"?"Quiz de digitalización":type==="classify"?"¿IT, OT o ambas?":"Reto relámpago"};
@@ -115,8 +156,8 @@
   }
   function finish(){
     clearInterval(timer);
-    area.innerHTML=`<h3>Resultado: ${score} puntos</h3><p>Introduce tu nombre para guardar la puntuación y consultar si entras en el Top 3.</p><form class="player-form" id="score-form"><input id="player-name" maxlength="18" placeholder="Tu nombre" required autocomplete="nickname"><button class="btn" type="submit">Guardar puntuación</button></form>`;
-    $("#score-form").addEventListener("submit",async ev=>{ev.preventDefault();const button=ev.submitter;if(button)button.disabled=true;await submitScore($("#player-name").value);});
+    area.innerHTML=`<h3>Resultado: ${score} puntos</h3><p>Elige un alias para aparecer en el Top 20 compartido.</p><p class="small">Por seguridad, el alias debe incluir letras y al menos un número (por ejemplo, Luna7). No se admiten palabras sueltas como «mesa».</p><form class="player-form" id="score-form"><input id="player-name" maxlength="18" minlength="3" placeholder="Ejemplo: Luna7" required autocomplete="nickname" aria-describedby="nickname-error"><button class="btn" type="submit">Guardar puntuación</button><p id="nickname-error" class="game-feedback" role="alert"></p></form>`;
+    $("#score-form").addEventListener("submit",async ev=>{ev.preventDefault();const button=ev.submitter;if(button)button.disabled=true;const ok=await submitScore($("#player-name").value);if(!ok&&button)button.disabled=false;});
   }
   function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
   document.querySelectorAll("[data-start]").forEach(b=>b.addEventListener("click",()=>start(b.dataset.start)));
